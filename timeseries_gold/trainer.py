@@ -1,6 +1,5 @@
 from __future__ import annotations
-from typing import Dict
-import numpy as np
+
 from sklearn.metrics import mean_absolute_percentage_error
 from .dtos import TrainConfig, DatasetSplit, TrainReport
 
@@ -14,7 +13,7 @@ class Trainer:
             ds.X_train, ds.y_train,
             epochs=cfg.epochs,
             batch_size=cfg.batch_size,
-            validation_data=(ds.X_val, ds.y_val),
+            validation_data=(ds.X_test, ds.y_test),
             verbose=cfg.verbose,
         )
 

@@ -1,14 +1,14 @@
-from __future__ import annotations
-from typing import Sequence, Optional
+from typing import Sequence
+
 import numpy as np
 import pandas as pd
-from .dtos import DatasetSplit
 
 
 class Predictor:
     """Utility for inference on new dataframes using fitted scalers & model."""
 
-    def __init__(self, model, feature_cols: Sequence[str], target_cols: Sequence[str], window_size: int, x_scaler, y_scaler):
+    def __init__(self, model, feature_cols: Sequence[str], target_cols: Sequence[str],
+                 window_size: int, x_scaler, y_scaler):
         self.model = model
         self.feature_cols = tuple(feature_cols)
         self.target_cols = tuple(target_cols)
@@ -22,14 +22,10 @@ class Predictor:
         if N <= w:
             raise ValueError(f"Need N > window_size. Got N={N}, window_size={w}")
         M = N - w
-        windows = np.stack([scaled_X[i:i+w, :] for i in range(M)], axis=0)
+        windows = np.stack([scaled_X[i:i + w, :] for i in range(M)], axis=0)
         return windows  # (M, w, F)
 
     def predict_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Assumes df is already preprocessed like training (Time parsed/sorted, numeric types).
-        Returns a DataFrame aligned to df.index[self.window_size:] containing predictions (REAL units).
-        """
         for c in self.feature_cols:
             if c not in df.columns:
                 raise KeyError(f"Missing feature '{c}' in new dataframe")
@@ -46,9 +42,6 @@ class Predictor:
         return pred_df
 
     def predict_next_from_tail(self, df_tail: pd.DataFrame) -> np.ndarray:
-        """
-        Given the last `window_size` rows of features, predict the next target values (REAL units).
-        """
         if len(df_tail) != self.window_size:
             raise ValueError(f"df_tail must have exactly window_size={self.window_size} rows")
         raw = df_tail[list(self.feature_cols)].to_numpy(dtype=float)
@@ -57,3 +50,37 @@ class Predictor:
         y_pred_s = self.model.predict(X, verbose=0)[0]
         y_inv = self.y_scaler.inverse_transform(y_pred_s.reshape(1, -1))[0]
         return y_inv  # shape (n_targets,)
+
+    def predict_future(self, df: pd.DataFrame, steps: int = 30) -> pd.DataFrame:
+        """
+        Recursive multi-step forecast.
+        - df: must contain at least window_size rows
+        - steps: number of steps to forecast
+        - fake_volume: if target_cols excludes TickVolume but feature_cols includes it,
+                       fill it with this constant value.
+        Returns a DataFrame of shape (steps, len(feature_cols)).
+        """
+        for c in self.feature_cols:
+            if c not in df.columns:
+                raise KeyError(f"Missing feature '{c}' in new dataframe")
+
+        raw_X = df[list(self.feature_cols)].to_numpy(dtype=float)
+        scaled_X = self.x_scaler.transform(raw_X)
+
+        if len(scaled_X) < self.window_size:
+            raise ValueError(f"Need at least {self.window_size} rows for forecasting")
+
+        seq = scaled_X[-self.window_size:].copy()
+        preds = []
+
+        for _ in range(steps):
+            X_in = seq[-self.window_size:].reshape(1, self.window_size, len(self.feature_cols))
+            y_pred_s = self.model.predict(X_in, verbose=0)[0]  # (n_targets,)
+            y_pred = self.y_scaler.inverse_transform(y_pred_s.reshape(1, -1))[0]
+
+            next_row = list(y_pred)
+
+            preds.append(next_row)
+            seq = np.vstack([seq, next_row])  # keep rolling sequence
+
+        return pd.DataFrame(preds, columns=self.feature_cols)

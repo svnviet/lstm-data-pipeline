@@ -1,0 +1,1 @@
+{"feature_cols": ["Open", "High", "Low", "Close", "TickVolume"], "target_cols": ["Open", "High", "Low", "Close", "TickVolume"], "window_size": 60}

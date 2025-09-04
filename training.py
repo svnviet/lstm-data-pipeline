@@ -8,7 +8,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, LSTM, Dense
 import matplotlib.pyplot as plt
 
-df=pd.read_csv("/content/xauusd_M1_exness_2025-08-25.csv")
+df = pd.read_csv("/content/xauusd_M1_exness_2025-08-25.csv")
 empty_rows = df.isnull().all(axis=1)
 
 # Print the indices of empty rows
@@ -64,38 +64,39 @@ def split_sequence_dataset(df: pd.DataFrame,
 
     M = N - window_size  # usable target points
     n_train = int(M * ratios[0])
-    n_test  = int(M * ratios[1])
-    n_val   = M - n_train - n_test
+    n_test = int(M * ratios[1])
+    n_val = M - n_train - n_test
 
     train_targets = range(window_size, window_size + n_train)
-    test_targets  = range(window_size + n_train, window_size + n_train + n_test)
-    val_targets   = range(window_size + n_train + n_test, window_size + M)
+    test_targets = range(window_size + n_train, window_size + n_train + n_test)
+    val_targets = range(window_size + n_train + n_test, window_size + M)
 
     def build_split(target_indices):
         X, y, z, idx = [], [], [], []
         for i in target_indices:
             X.append(scaled_X[i - window_size:i, :])  # (window_size, n_features)
-            y.append(scaled_y[i, :])                  # (n_targets,)
-            z.append(raw_y[i, :])                     # unscaled target for reference
+            y.append(scaled_y[i, :])  # (n_targets,)
+            z.append(raw_y[i, :])  # unscaled target for reference
             idx.append(i)
         return np.array(X), np.array(y), np.array(z), np.array(idx, dtype=int)
 
     X_train, y_train, z_train, idx_train = build_split(train_targets)
-    X_test,  y_test,  z_test,  idx_test  = build_split(test_targets)
-    X_val,   y_val,   z_val,   idx_val   = build_split(val_targets)
+    X_test, y_test, z_test, idx_test = build_split(test_targets)
+    X_val, y_val, z_val, idx_val = build_split(val_targets)
 
     return {
         "x_scaler": x_scaler,
         "y_scaler": y_scaler,
         "train": (X_train, y_train, z_train, idx_train),
-        "test":  (X_test,  y_test,  z_test,  idx_test),
-        "val":   (X_val,   y_val,   z_val,   idx_val),
-        "meta":  {
+        "test": (X_test, y_test, z_test, idx_test),
+        "val": (X_val, y_val, z_val, idx_val),
+        "meta": {
             "feature_cols": feature_cols,
             "target_cols": target_cols,
             "window_size": window_size
         }
     }
+
 
 def define_model(window_size: int, n_features: int, n_targets: int) -> Model:
     inp = Input(shape=(window_size, n_features))
@@ -108,17 +109,18 @@ def define_model(window_size: int, n_features: int, n_targets: int) -> Model:
     model.compile(loss='mean_squared_error', optimizer='adam')
     return model
 
+
 # ===== 1) Prepare splits (TickVolume as extra input feature) =====
-feature_cols = ['Open', 'High', 'Low', 'Close', 'TickVolume']   # inputs
-target_cols  = ['Open', 'Close', 'High', 'Low']                  # outputs (unchanged)
+feature_cols = ['Open', 'High', 'Low', 'Close', 'TickVolume']  # inputs
+target_cols = ['Open', 'Close', 'High', 'Low']  # outputs (unchanged)
 
 splits = split_sequence_dataset(df, feature_cols, target_cols, window_size=60, ratios=(0.7, 0.2, 0.1))
 x_scaler = splits["x_scaler"]
 y_scaler = splits["y_scaler"]
 
 X_train, y_train, z_train, idx_train = splits["train"]
-X_test,  y_test,  z_test,  idx_test  = splits["test"]
-X_val,   y_val,   z_val,   idx_val   = splits["val"]
+X_test, y_test, z_test, idx_test = splits["test"]
+X_val, y_val, z_val, idx_val = splits["val"]
 
 # ===== 2) Model =====
 model = define_model(window_size=60, n_features=len(feature_cols), n_targets=len(target_cols))
@@ -135,8 +137,8 @@ history = model.fit(
 
 # ===== 4) Evaluate & predict =====
 test_loss = model.evaluate(X_test, y_test, verbose=0)
-y_pred_test_s = model.predict(X_test, verbose=0)           # scaled
-y_test_inv = y_scaler.inverse_transform(y_test)            # back to real prices
+y_pred_test_s = model.predict(X_test, verbose=0)  # scaled
+y_test_inv = y_scaler.inverse_transform(y_test)  # back to real prices
 y_pred_test_inv = y_scaler.inverse_transform(y_pred_test_s)
 
 # Metrics in REAL units (per target)
@@ -165,9 +167,9 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
-
 import joblib
 import json
+
 model.save("artifacts/model.h5")
 joblib.dump(x_scaler, "artifacts/x_scaler.joblib")
 joblib.dump(y_scaler, "artifacts/y_scaler.joblib")
