@@ -21,7 +21,7 @@ TARGET_COLS  = ["Open", "High", "Low", "Close", "TickVolume"]
 
 MODEL_PATH = os.path.join(
     os.path.dirname(__file__),
-    f"artifacts_{datetime.utcnow().strftime('%Y%m%d')}"
+    f"artifacts_{datetime.now().strftime('%Y%m%d')}"
 )
 
 
@@ -194,7 +194,7 @@ def retrain_model() -> None:
     outdir, report = Trainer.resume_from_artifacts(
         artifact_dir="artifacts_20250903",
         csv_path="xauusd_M1_exness_2025-08-25.csv",
-        epochs_more=50,
+        epochs_more=1000,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
     )

@@ -184,7 +184,7 @@ class Trainer:
         # 6) Save updated artifacts
         outdir = save_to or os.path.join(
             artifact_dir,
-            "resume_" + dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+            "resume_" + dt.datetime.now().strftime("%Y%m%dT%H%M%SZ"),
         )
         pathlib.Path(outdir).mkdir(parents=True, exist_ok=True)
 
