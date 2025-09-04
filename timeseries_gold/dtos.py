@@ -7,7 +7,7 @@ import numpy as np
 @dataclass(frozen=True)
 class SplitConfig:
     window_size: int = 60
-    ratios: Tuple[float, float] = (0.7, 0.3)
+    ratios: Tuple[float, float, float] = (0.7, 0.2, 0.1)  # train, test, val
 
 
 @dataclass(frozen=True)
@@ -27,11 +27,18 @@ class ScalerBundle:
 class DatasetSplit:
     X_train: np.ndarray
     y_train: np.ndarray
+    z_train: np.ndarray
     idx_train: np.ndarray
 
     X_test: np.ndarray
     y_test: np.ndarray
+    z_test: np.ndarray
     idx_test: np.ndarray
+
+    X_val: np.ndarray
+    y_val: np.ndarray
+    z_val: np.ndarray
+    idx_val: np.ndarray
 
     feature_cols: Tuple[str, ...]
     target_cols: Tuple[str, ...]

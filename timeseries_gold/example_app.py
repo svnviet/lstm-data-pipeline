@@ -1,45 +1,115 @@
 from __future__ import annotations
-import os
+import os, json
 from datetime import datetime
 
-from timeseries_gold.data import CsvPreprocessor
-from timeseries_gold.split import SequenceSplitter
-from timeseries_gold.model import ModelBuilder
-from timeseries_gold.trainer import Trainer
-from timeseries_gold.dtos import SplitConfig, TrainConfig
-from timeseries_gold.predict import Predictor
-
+import pandas as pd
 import joblib
-import json
+from sklearn.preprocessing import MinMaxScaler
+
+from keras.optimizers import Adam
+from keras.saving import load_model  # FIX: Keras 3 path
+
+from .data import CsvPreprocessor
+from .split import SequenceSplitter
+from .dtos import SplitConfig, TrainConfig
+from .model import ModelBuilder
+from .trainer import Trainer
+from .predict import Predictor
 
 FEATURE_COLS = ["Open", "High", "Low", "Close", "TickVolume"]
-TARGET_COLS = ["Open", "High", "Low", "Close", "TickVolume"]
+TARGET_COLS  = ["Open", "High", "Low", "Close", "TickVolume"]
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), f"artifacts_{datetime.now().strftime('%Y%m%d')}")
+MODEL_PATH = os.path.join(
+    os.path.dirname(__file__),
+    f"artifacts_{datetime.utcnow().strftime('%Y%m%d')}"
+)
+
+
+def _fit_scalers_on_train_only(
+    df: pd.DataFrame,
+    feature_cols,
+    target_cols,
+    window_size: int,
+    ratios
+):
+    """
+    Fit MinMax scalers using ONLY the training span:
+    - X scaler on rows [0 : w + n_train)
+    - y scaler on rows [w : w + n_train)   (targets exist only for indices >= w)
+    """
+    w = int(window_size)
+    r_train, r_val, r_test = ratios
+    N = len(df)
+    if N <= w:
+        raise ValueError(f"Need N > window_size. Got N={N}, window_size={w}")
+    M = N - w
+
+    n_train = int(M * r_train)
+
+    # Fit X on all feature rows that feed the train windows
+    X_train_span = df[feature_cols].iloc[: w + n_train]
+    # Fit y on target rows for train
+    y_train_span = df[target_cols].iloc[w: w + n_train]
+
+    x_scaler = MinMaxScaler().fit(X_train_span.to_numpy(dtype=float))
+    y_scaler = MinMaxScaler().fit(y_train_span.to_numpy(dtype=float))
+    return x_scaler, y_scaler
 
 
 def run_training(csv_path: str) -> None:
+    os.makedirs(MODEL_PATH, exist_ok=True)
+
     # 1) Load & preprocess
     prep = CsvPreprocessor()
     df_raw = prep.load(csv_path)
-    df = prep.preprocess(df_raw)
+    df = prep.preprocess(df_raw)  # UTC parse, sort asc, numeric, drop extras
 
-    # 2) Split
-    splitter = SequenceSplitter(SplitConfig(window_size=60, ratios=(0.7, 0.3)))
-    ds = splitter.split(df, FEATURE_COLS, TARGET_COLS)
+    # 2) Split (train/val/test), fitting scalers on TRAIN ONLY
+    window_size = 60
+    ratios = (0.7, 0.2, 0.1)
 
-    # 3) Model
-    model = ModelBuilder.lstm_stacked(ds.window_size, len(ds.feature_cols), len(ds.target_cols))
+    x_scaler, y_scaler = _fit_scalers_on_train_only(
+        df, FEATURE_COLS, TARGET_COLS, window_size, ratios
+    )
+
+    splitter = SequenceSplitter(SplitConfig(window_size=window_size, ratios=ratios))
+    ds = splitter.split(
+        df=df,
+        feature_cols=FEATURE_COLS,
+        target_cols=TARGET_COLS,
+        window_size=window_size,
+        ratios=ratios,
+        x_scaler=x_scaler,
+        y_scaler=y_scaler,
+    )
+
+    # 3) Model (FIX: correct parameter names)
+    model = ModelBuilder.lstm_stacked(
+        window_size=ds.window_size,
+        n_features=len(ds.feature_cols),
+        n_targets=len(ds.target_cols),
+    )
+
+    # Compile for TF 2.20 / Keras 3; eager helps avoid numpy() crash on resume
+    model.compile(
+        optimizer=Adam(1e-3),
+        loss="mse",
+        metrics=["mae"],
+        run_eagerly=True,
+        jit_compile=False,
+    )
     model.summary()
 
     # 4) Train & report
-    report = Trainer(model).fit(ds, TrainConfig(epochs=300, batch_size=32, verbose=1))
+    trainer = Trainer(model)
+    cfg = TrainConfig(epochs=300, batch_size=32, verbose=1)
+    report = trainer.fit(ds, cfg)
 
     print("Test Loss (scaled MSE):", report.test_loss_scaled_mse)
     print("Test MAPE per target:", report.mape_per_target)
     print("Test Accuracy per target:", report.accuracy_per_target)
 
-    # 5) Inference on the test portion (or full df)
+    # 5) Quick inference sanity checks
     predictor = Predictor(
         model=model,
         feature_cols=ds.feature_cols,
@@ -48,74 +118,92 @@ def run_training(csv_path: str) -> None:
         x_scaler=ds.scalers.x_scaler,
         y_scaler=ds.scalers.y_scaler,
     )
-
     pred_df = predictor.predict_dataframe(df)
     print("Pred head:\n", pred_df.head())
 
-    # 6) Example: predict the very next step from the tail window
     tail = df.iloc[-ds.window_size:]
     next_pred = predictor.predict_next_from_tail(tail)
     print("Next-step prediction (real units, order TARGET_COLS):", next_pred)
 
-    # 7) Save the model
-    model.save(os.path.join(MODEL_PATH, "model.keras"))
+    # 6) Save artifacts
+    model.save(os.path.join(MODEL_PATH, "model.keras"))  # FIX: use .keras
     joblib.dump(ds.scalers.x_scaler, os.path.join(MODEL_PATH, "x_scaler.joblib"))
     joblib.dump(ds.scalers.y_scaler, os.path.join(MODEL_PATH, "y_scaler.joblib"))
-    with open((os.path.join(MODEL_PATH, "meta.json")), "w") as f:
-        json.dump({"feature_cols": FEATURE_COLS, "target_cols": TARGET_COLS, "window_size": ds.window_size}, f)
+    with open(os.path.join(MODEL_PATH, "meta.json"), "w") as f:
+        json.dump(
+            {
+                "feature_cols": list(ds.feature_cols),
+                "target_cols": list(ds.target_cols),
+                "window_size": int(ds.window_size),
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    # (Optional) Save training history
+    if getattr(report, "history", None):
+        with open(os.path.join(MODEL_PATH, "history.json"), "w") as f:
+            json.dump({k: list(map(float, v)) for k, v in report.history.items()}, f)
+
+    print("Saved artifacts to:", MODEL_PATH)
 
 
 def load_model_predict():
-    import os, json, joblib
-    import pandas as pd
-    from keras.models import load_model
-
-    MODEL_PATH = "timeseries_gold/artifacts_20250903"
+    """
+    Load artifacts and run future prediction on a new CSV.
+    """
     FUTURE_STEPS = 30
+    ART_DIR = "artifacts_20250903"  # adjust as needed
 
-    def load_predictor() -> Predictor:
-        # 1) Load model & scalers
-        model = load_model(os.path.join(MODEL_PATH, "model.h5"))
-        x_scaler = joblib.load(os.path.join(MODEL_PATH, "x_scaler.joblib"))
-        y_scaler = joblib.load(os.path.join(MODEL_PATH, "y_scaler.joblib"))
+    # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
+    model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
+    x_scaler = joblib.load(os.path.join(ART_DIR, "x_scaler.joblib"))
+    y_scaler = joblib.load(os.path.join(ART_DIR, "y_scaler.joblib"))
 
-        # 2) Load metadata
-        with open(os.path.join(MODEL_PATH, "meta.json"), "r") as f:
-            meta = json.load(f)
+    # 2) Load metadata
+    with open(os.path.join(ART_DIR, "meta.json"), "r") as f:
+        meta = json.load(f)
+    feature_cols = meta["feature_cols"]
+    target_cols = meta["target_cols"]
+    window_size = int(meta["window_size"])
 
-        feature_cols = meta["feature_cols"]
-        target_cols = meta["target_cols"]
-        window_size = meta["window_size"]
+    # 3) Build predictor
+    predictor = Predictor(
+        model=model,
+        feature_cols=feature_cols,
+        target_cols=target_cols,
+        window_size=window_size,
+        x_scaler=x_scaler,
+        y_scaler=y_scaler,
+    )
 
-        # 3) Return Predictor object
-        return Predictor(
-            model=model,
-            feature_cols=feature_cols,
-            target_cols=target_cols,
-            window_size=window_size,
-            x_scaler=x_scaler,
-            y_scaler=y_scaler,
-        )
+    # 4) Load & preprocess new data (FIX: keep preprocessing consistent)
+    cp = CsvPreprocessor()
+    df_new = cp.preprocess(cp.load("new_gold_data.csv"))
 
-    # === Usage ===
+    # 5) Predict future
+    future_df = predictor.predict_future(df_new, steps=FUTURE_STEPS)
 
-    # Load predictor
-    predictor = load_predictor()
-
-    # Load new data
-    df_new = pd.read_csv("new_gold_data.csv", parse_dates=["Time"], index_col="Time")
-    df_new = df_new.sort_index()  # must be sorted ascending
-
-    future_df = predictor.predict_future(df_new, steps=30)
-
-    # 7) Save to CSV if needed
+    # 6) Save
     future_df.to_csv("future_predictions.csv", index=False)
     print("Predictions saved to future_predictions.csv")
 
 
+def retrain_model() -> None:
+    outdir, report = Trainer.resume_from_artifacts(
+        artifact_dir="artifacts_20250903",
+        csv_path="xauusd_M1_exness_2025-08-25.csv",
+        epochs_more=50,
+        # initial_epoch=300,  # or None to auto-detect from history.json
+        batch_size=32,
+    )
+    print("Saved to:", outdir)
+    print(report.mape_per_target)
+
+
 if __name__ == "__main__":
-    # Example run
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025-08-01.csv")
     run_training(csv_path)
-
     # load_model_predict()
+    # retrain_model()
