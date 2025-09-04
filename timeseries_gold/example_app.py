@@ -204,6 +204,6 @@ def retrain_model() -> None:
 
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025-08-01.csv")
-    run_training(csv_path)
+    # run_training(csv_path)
     # load_model_predict()
-    # retrain_model()
+    retrain_model()

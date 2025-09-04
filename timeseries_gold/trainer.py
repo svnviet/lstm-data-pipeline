@@ -132,6 +132,24 @@ class Trainer:
         start_epoch = int(initial_epoch) if initial_epoch is not None else int(prev_epoch_hist)
         end_epoch = start_epoch + int(epochs_more)
 
+        planned_cbs = list(callbacks) if callbacks else [
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-6, verbose=1),
+            EarlyStopping(monitor="val_loss", patience=20, restore_best_weights=True, verbose=1),
+        ]
+        Trainer._print_model_resume_info(
+            model=model,
+            artifact_dir=artifact_dir,
+            orig_fmt=orig_fmt,
+            ds=ds,
+            start_epoch=start_epoch,
+            end_epoch=end_epoch,
+            epochs_more=int(epochs_more),
+            planned_optimizer="Adam(1e-3)",
+            planned_loss="mse",
+            planned_metrics=("mae",),
+            callbacks=planned_cbs,
+        )
+
         model.compile(
             optimizer=Adam(1e-3),
             loss="mse",
@@ -244,3 +262,67 @@ class Trainer:
                 pass
 
         return model, x_scaler, y_scaler, meta, prev_epoch, fmt
+
+    @staticmethod
+    def _print_model_resume_info(
+        *,
+        model,
+        artifact_dir: str,
+        orig_fmt: str,
+        ds: DatasetSplit,
+        start_epoch: int,
+        end_epoch: int,
+        epochs_more: int,
+        planned_optimizer: str = "Adam(1e-3)",
+        planned_loss: str = "mse",
+        planned_metrics: Sequence[str] = ("mae",),
+        callbacks: Optional[Sequence] = None,
+    ) -> None:
+        print("\n=== Resume Training: Model & Data Info ===")
+        print(f"Artifacts: {artifact_dir} (model.{orig_fmt})")
+
+        # Model basics
+        try:
+            name = getattr(model, "name", "model")
+            in_shape = getattr(model, "input_shape", None)
+            out_shape = getattr(model, "output_shape", None)
+            total_params = model.count_params()
+            trainable_params = int(sum(int(np.prod(v.shape)) for v in model.trainable_weights))
+            non_trainable_params = int(sum(int(np.prod(v.shape)) for v in model.non_trainable_weights))
+        except Exception:
+            name = getattr(model, "name", "model")
+            in_shape = out_shape = total_params = trainable_params = non_trainable_params = "?"
+        print(f"Model: {name}")
+        print(f"  Input shape:  {in_shape}")
+        print(f"  Output shape: {out_shape}")
+        print(f"  Params: total={total_params} | trainable={trainable_params} | non-trainable={non_trainable_params}")
+
+        # Layer stack (best-effort)
+        try:
+            for lyr in model.layers:
+                oshape = getattr(lyr, "output_shape", "?")
+                print(f"    - {lyr.name:24s} {lyr.__class__.__name__:20s} -> {oshape}")
+        except Exception:
+            pass
+
+        # Dataset shapes / sizes
+        print("Data:")
+        print(f"  window_size={ds.window_size} | features={len(ds.feature_cols)} | targets={len(ds.target_cols)}")
+        print(f"  Train: X={ds.X_train.shape}, y={ds.y_train.shape}")
+        print(f"  Val:   X={ds.X_val.shape},   y={ds.y_val.shape}")
+        print(f"  Test:  X={ds.X_test.shape},  y={ds.y_test.shape}")
+
+        # Resume plan
+        print("Resume plan:")
+        print(f"  start_epoch={start_epoch} -> end_epoch={end_epoch} (add {epochs_more} epochs)")
+        print("Planned compile:")
+        print(f"  optimizer={planned_optimizer}, loss={planned_loss}, metrics={list(planned_metrics)}")
+        if callbacks:
+            names = []
+            for cb in callbacks:
+                try:
+                    names.append(cb.__class__.__name__)
+                except Exception:
+                    names.append(str(cb))
+            print(f"Callbacks: {names}")
+        print("=========================================\n")
