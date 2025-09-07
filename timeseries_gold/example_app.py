@@ -128,7 +128,7 @@ def run_training(csv_path: str) -> None:
 
     # 4) Train & report
     trainer = Trainer(model)
-    cfg = TrainConfig(epochs=1, batch_size=32, verbose=1)
+    cfg = TrainConfig(epochs=300, batch_size=32, verbose=1)
     report = trainer.fit(ds, cfg)
 
     print("Test Loss (scaled MSE):", report.test_loss_scaled_mse)
@@ -180,8 +180,8 @@ def load_model_predict():
     Load artifacts and run future prediction on a new CSV.
     """
     FUTURE_STEPS = 30
-    ART_NAME = "resume_20250905T173627Z"
-    ART_DIR = "/Users/vietnguyen/Projects/prediction/resume_20250905T173627Z"  # adjust as needed
+    ART_NAME = "artifacts_20250907"
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/timeseries_gold/artifacts_20250907"  # adjust as needed
 
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
@@ -230,7 +230,7 @@ def retrain_model() -> None:
 
 
 if __name__ == "__main__":
-    csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025-08-01.csv")
+    csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
     run_training(csv_path)
     # load_model_predict()
     # retrain_model()

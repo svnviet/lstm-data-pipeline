@@ -1,3 +1,10 @@
+future_predictions*
+artifacts_*
+timeseries_gold/artifacts_*
+xauusd_*
+resume_*
+new_gold_data.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 */__pycache__/

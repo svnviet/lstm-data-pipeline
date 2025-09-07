@@ -5,16 +5,15 @@ import ta
 
 
 class Predictor:
-    """Utility for inference on new dataframes using fitted scalers & model."""
-
     def __init__(self, model, feature_cols: Sequence[str], target_cols: Sequence[str],
                  window_size: int, x_scaler, y_scaler):
         self.model = model
-        self.feature_cols = tuple(feature_cols)
-        self.target_cols = tuple(target_cols)
+        self.feature_cols = list(feature_cols)   # FIX: use list
+        self.target_cols = list(target_cols)     # FIX: use list
         self.window_size = int(window_size)
         self.x_scaler = x_scaler
         self.y_scaler = y_scaler
+
 
     # --- Helper: add engineered features automatically ---
     def _add_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -137,22 +136,28 @@ class Predictor:
             if c not in df.columns:
                 raise KeyError(f"Missing feature '{c}' in new dataframe (expected {c})")
 
-        raw_X = df[list(self.feature_cols)].to_numpy(dtype=float)
-        scaled_X = self.x_scaler.transform(raw_X)
-
-        if len(scaled_X) < self.window_size:
-            raise ValueError(f"Need at least {self.window_size} rows for forecasting")
-
-        seq = scaled_X[-self.window_size:].copy()
+        # working copy
+        df_work = df.copy()
         preds = []
 
         for _ in range(steps):
-            X_in = seq[-self.window_size:].reshape(1, self.window_size, len(self.feature_cols))
+            # last window_size rows
+            seq = df_work.tail(self.window_size)
+            X_in = seq[self.feature_cols].to_numpy(dtype=float)
+            X_in = self.x_scaler.transform(X_in).reshape(1, self.window_size, len(self.feature_cols))
+
+            # predict next OHLCV
             y_pred_s = self.model.predict(X_in, verbose=0)[0]
             y_pred = self.y_scaler.inverse_transform(y_pred_s.reshape(1, -1))[0]
 
+            # build next row
+            next_row = {col: val for col, val in zip(self.target_cols, y_pred)}
+            next_row["Time"] = df_work["Time"].iloc[-1] + pd.Timedelta(minutes=1)
+
+            # append and recompute engineered features
+            df_work = pd.concat([df_work, pd.DataFrame([next_row])], ignore_index=True)
+            df_work = self._add_features(df_work)
+
             preds.append(y_pred)
-            # Important: append scaled version of y_pred, not raw
-            seq = np.vstack([seq, self.x_scaler.transform(y_pred.reshape(1, -1))])
 
         return pd.DataFrame(preds, columns=self.target_cols)

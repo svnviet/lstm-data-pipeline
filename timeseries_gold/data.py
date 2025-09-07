@@ -111,7 +111,7 @@ class CsvPreprocessor:
         df["SMA10"] = df["Close"].rolling(10).mean()
         df["SMA20"] = df["Close"].rolling(20).mean()
         df["EMA10"] = df["Close"].ewm(span=10, adjust=False).mean()
-        df["VWAP"] = (df["Close"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+        df["VWAP"] = (df["Close"] * df["TickVolume"]).cumsum() / df["TickVolume"].cumsum()
 
         # RSI (14)
         df["RSI14"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
