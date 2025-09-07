@@ -16,8 +16,34 @@ from .model import ModelBuilder
 from .trainer import Trainer
 from .predict import Predictor
 
-FEATURE_COLS = ["Open", "High", "Low", "Close", "TickVolume"]
-TARGET_COLS  = ["Open", "High", "Low", "Close", "TickVolume"]
+FEATURE_COLS = [
+    # --- Base OHLCV ---
+    "Open", "High", "Low", "Close", "TickVolume",
+
+    # --- Returns ---
+    "Close_ret", "Open_ret", "High_ret", "Low_ret",
+
+    # --- Volatility ---
+    "Range",
+
+    # --- Time features ---
+    "minute_of_day", "slot5", "slot5_sin", "slot5_cos",
+    "minutes_from_open", "minutes_to_close", "percent_session_elapsed",
+    "is_open", "is_close",
+
+    # --- Day of week ---
+    "day_of_week", "dow_sin", "dow_cos", "is_monday", "is_friday",
+
+    # --- Technical indicators ---
+    "SMA10", "SMA20", "EMA10", "VWAP",
+    "RSI14", "MACD", "MACD_signal", "MACD_diff",
+    "Bollinger_high", "Bollinger_low", "Bollinger_mavg",
+    "ATR14"
+]
+
+TARGET_COLS = [
+    "Open", "High", "Low", "Close", "TickVolume"
+]
 
 MODEL_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -26,11 +52,11 @@ MODEL_PATH = os.path.join(
 
 
 def _fit_scalers_on_train_only(
-    df: pd.DataFrame,
-    feature_cols,
-    target_cols,
-    window_size: int,
-    ratios
+        df: pd.DataFrame,
+        feature_cols,
+        target_cols,
+        window_size: int,
+        ratios
 ):
     """
     Fit MinMax scalers using ONLY the training span:
@@ -92,7 +118,7 @@ def run_training(csv_path: str) -> None:
 
     # Compile for TF 2.20 / Keras 3; eager helps avoid numpy() crash on resume
     model.compile(
-        optimizer=Adam(1e-3),
+        optimizer=Adam(1e-4),
         loss="mse",
         metrics=["mae"],
         run_eagerly=True,
@@ -102,7 +128,7 @@ def run_training(csv_path: str) -> None:
 
     # 4) Train & report
     trainer = Trainer(model)
-    cfg = TrainConfig(epochs=300, batch_size=32, verbose=1)
+    cfg = TrainConfig(epochs=1, batch_size=32, verbose=1)
     report = trainer.fit(ds, cfg)
 
     print("Test Loss (scaled MSE):", report.test_loss_scaled_mse)
@@ -154,7 +180,8 @@ def load_model_predict():
     Load artifacts and run future prediction on a new CSV.
     """
     FUTURE_STEPS = 30
-    ART_DIR = "artifacts_20250903"  # adjust as needed
+    ART_NAME = "resume_20250905T173627Z"
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/resume_20250905T173627Z"  # adjust as needed
 
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
@@ -186,15 +213,15 @@ def load_model_predict():
     future_df = predictor.predict_future(df_new, steps=FUTURE_STEPS)
 
     # 6) Save
-    future_df.to_csv("future_predictions.csv", index=False)
+    future_df.to_csv(f"future_predictions_{ART_NAME}.csv", index=False)
     print("Predictions saved to future_predictions.csv")
 
 
 def retrain_model() -> None:
     outdir, report = Trainer.resume_from_artifacts(
         artifact_dir="artifacts_20250903",
-        csv_path="xauusd_M1_exness_2025-08-25.csv",
-        epochs_more=1000,
+        csv_path="xauusd_M1_exness_2025-08-01.csv",
+        epochs_more=1,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
     )
@@ -204,6 +231,6 @@ def retrain_model() -> None:
 
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025-08-01.csv")
-    # run_training(csv_path)
+    run_training(csv_path)
     # load_model_predict()
-    retrain_model()
+    # retrain_model()
