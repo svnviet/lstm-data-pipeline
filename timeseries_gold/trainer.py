@@ -203,19 +203,32 @@ class Trainer:
     # Helpers
     # ----------------------------
     def _evaluate_and_report(self, ds: DatasetSplit, history: Dict[str, list]) -> TrainReport:
-        test_loss = float(self.model.evaluate(ds.X_test, ds.y_test, verbose=0))
+        # Ensure correct dtype for TF/Keras
+        X_test = np.asarray(ds.X_test, dtype=np.float32)
+        y_test = np.asarray(ds.y_test, dtype=np.float32)
 
-        y_pred_s = self.model.predict(ds.X_test, verbose=0)
-        y_test_inv = ds.scalers.y_scaler.inverse_transform(ds.y_test)
+        # Keras 3 can return dict or list; handle both
+        eval_res = self.model.evaluate(X_test, y_test, verbose=0, return_dict=True)
+        if isinstance(eval_res, dict):
+            test_loss = float(eval_res.get("loss", list(eval_res.values())[0]))
+        elif isinstance(eval_res, (list, tuple)):
+            test_loss = float(eval_res[0])  # first item is loss
+        else:
+            test_loss = float(eval_res)
+
+        # Predictions (scaled), then invert to real units
+        y_pred_s = self.model.predict(X_test, verbose=0)
+        y_test_inv = ds.scalers.y_scaler.inverse_transform(y_test)
         y_pred_inv = ds.scalers.y_scaler.inverse_transform(y_pred_s)
 
+        # Per-target metrics
         mape_raw = mean_absolute_percentage_error(y_test_inv, y_pred_inv, multioutput="raw_values")
         acc_raw = 1.0 - mape_raw
 
         mape_per_target = {t: float(m) for t, m in zip(ds.target_cols, mape_raw)}
         acc_per_target = {t: float(a) for t, a in zip(ds.target_cols, acc_raw)}
 
-        history_dict = {k: list(map(float, v)) for k, v in history.items()}
+        history_dict = {k: [float(x) for x in v] for k, v in history.items()}
         return TrainReport(
             test_loss_scaled_mse=test_loss,
             mape_per_target=mape_per_target,
