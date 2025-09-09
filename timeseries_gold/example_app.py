@@ -131,10 +131,6 @@ def run_training(csv_path: str) -> None:
     cfg = TrainConfig(epochs=300, batch_size=32, verbose=1)
     report = trainer.fit(ds, cfg)
 
-    print("Test Loss (scaled MSE):", report.test_loss_scaled_mse)
-    print("Test MAPE per target:", report.mape_per_target)
-    print("Test Accuracy per target:", report.accuracy_per_target)
-
     # 5) Quick inference sanity checks
     predictor = Predictor(
         model=model,
