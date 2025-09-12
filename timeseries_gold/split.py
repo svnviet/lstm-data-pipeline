@@ -1,11 +1,13 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-from .dtos import SplitConfig, DatasetSplit, ScalerBundle
+from .dtos import DatasetSplit, ScalerBundle, SplitConfig
 
 
 @dataclass
@@ -14,6 +16,7 @@ class SequenceSplitter:
     Builds time-ordered Train/Val/Test windows.
     Uses PROVIDED scalers (no refit) when resuming.
     """
+
     config: SplitConfig
 
     def split(
@@ -32,7 +35,9 @@ class SequenceSplitter:
 
         for c in list(feature_cols) + list(target_cols):
             if c not in df.columns:
-                raise KeyError(f"Column '{c}' not in DataFrame. Available: {list(df.columns)}")
+                raise KeyError(
+                    f"Column '{c}' not in DataFrame. Available: {list(df.columns)}"
+                )
 
         raw_X = df[list(feature_cols)].to_numpy(dtype=float)
         raw_y = df[list(target_cols)].to_numpy(dtype=float)
@@ -50,15 +55,15 @@ class SequenceSplitter:
 
         # NOTE: order is train, val, test  (not train, test, val)
         n_train = int(M * ratios[0])
-        n_val   = int(M * ratios[1])
-        n_test  = M - n_train - n_val
+        n_val = int(M * ratios[1])
+        n_test = M - n_train - n_val
 
         def build(target_indices: range):
             X, y, z, idx = [], [], [], []
             for i in target_indices:
-                X.append(scaled_X[i - w:i, :])
+                X.append(scaled_X[i - w : i, :])
                 y.append(scaled_y[i, :])
-                z.append(raw_y[i, :])   # unscaled targets (for inspection)
+                z.append(raw_y[i, :])  # unscaled targets (for inspection)
                 idx.append(i)
             X = np.asarray(X, dtype=np.float32)
             y = np.asarray(y, dtype=np.float32)
@@ -67,17 +72,29 @@ class SequenceSplitter:
             return X, y, z, idx
 
         train_targets = range(w, w + n_train)
-        val_targets   = range(w + n_train, w + n_train + n_val)
-        test_targets  = range(w + n_train + n_val, w + M)
+        val_targets = range(w + n_train, w + n_train + n_val)
+        test_targets = range(w + n_train + n_val, w + M)
 
         X_train, y_train, z_train, idx_train = build(train_targets)
-        X_val,   y_val,   z_val,   idx_val   = build(val_targets)
-        X_test,  y_test,  z_test,  idx_test  = build(test_targets)
+        X_val, y_val, z_val, idx_val = build(val_targets)
+        X_test, y_test, z_test, idx_test = build(test_targets)
 
         scalers = ScalerBundle(x_scaler=x_scaler, y_scaler=y_scaler)
         return DatasetSplit(
-            X_train, y_train, z_train, idx_train,
-            X_test, y_test, z_test, idx_test,
-            X_val, y_val, z_val, idx_val,
-            tuple(feature_cols), tuple(target_cols), w, scalers,
+            X_train,
+            y_train,
+            z_train,
+            idx_train,
+            X_test,
+            y_test,
+            z_test,
+            idx_test,
+            X_val,
+            y_val,
+            z_val,
+            idx_val,
+            tuple(feature_cols),
+            tuple(target_cols),
+            w,
+            scalers,
         )

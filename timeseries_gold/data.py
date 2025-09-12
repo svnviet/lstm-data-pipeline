@@ -1,7 +1,9 @@
 from __future__ import annotations
-import pandas as pd
-import numpy as np
+
 from typing import Iterable
+
+import numpy as np
+import pandas as pd
 import ta
 
 
@@ -21,20 +23,41 @@ class CsvPreprocessor:
         # All engineered features (now 29 total, including day-of-week)
         self.feature_cols = [
             # Returns
-            "Close_ret", "Open_ret", "High_ret", "Low_ret",
+            "Close_ret",
+            "Open_ret",
+            "High_ret",
+            "Low_ret",
             # Volatility
             "Range",
             # Time features
-            "minute_of_day", "slot5", "slot5_sin", "slot5_cos",
-            "minutes_from_open", "minutes_to_close", "percent_session_elapsed",
-            "is_open", "is_close",
+            "minute_of_day",
+            "slot5",
+            "slot5_sin",
+            "slot5_cos",
+            "minutes_from_open",
+            "minutes_to_close",
+            "percent_session_elapsed",
+            "is_open",
+            "is_close",
             # Day of week
-            "day_of_week", "dow_sin", "dow_cos", "is_monday", "is_friday",
+            "day_of_week",
+            "dow_sin",
+            "dow_cos",
+            "is_monday",
+            "is_friday",
             # Technical indicators
-            "SMA10", "SMA20", "EMA10", "VWAP",
-            "RSI14", "MACD", "MACD_signal", "MACD_diff",
-            "Bollinger_high", "Bollinger_low", "Bollinger_mavg",
-            "ATR14"
+            "SMA10",
+            "SMA20",
+            "EMA10",
+            "VWAP",
+            "RSI14",
+            "MACD",
+            "MACD_signal",
+            "MACD_diff",
+            "Bollinger_high",
+            "Bollinger_low",
+            "Bollinger_mavg",
+            "ATR14",
         ]
 
     def load(self, path: str) -> pd.DataFrame:
@@ -61,7 +84,7 @@ class CsvPreprocessor:
 
         # numeric columns (all except Time)
         num_cols = df.columns.drop(["Time"]).tolist()
-        df[num_cols] = df[num_cols].replace({',': ''}, regex=True)
+        df[num_cols] = df[num_cols].replace({",": ""}, regex=True)
         df[num_cols] = df[num_cols].astype("float64")
 
         # Add engineered features
@@ -93,7 +116,7 @@ class CsvPreprocessor:
         df["minutes_from_open"] = df["minute_of_day"] - session_open
         df["minutes_to_close"] = session_close - df["minute_of_day"]
         df["percent_session_elapsed"] = (
-                df["minutes_from_open"] / (session_close - session_open)
+            df["minutes_from_open"] / (session_close - session_open)
         ).clip(0, 1)
 
         # Flags
@@ -111,7 +134,9 @@ class CsvPreprocessor:
         df["SMA10"] = df["Close"].rolling(10).mean()
         df["SMA20"] = df["Close"].rolling(20).mean()
         df["EMA10"] = df["Close"].ewm(span=10, adjust=False).mean()
-        df["VWAP"] = (df["Close"] * df["TickVolume"]).cumsum() / df["TickVolume"].cumsum()
+        df["VWAP"] = (df["Close"] * df["TickVolume"]).cumsum() / df[
+            "TickVolume"
+        ].cumsum()
 
         # RSI (14)
         df["RSI14"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()

@@ -1,20 +1,20 @@
-from .dtos import SplitConfig, TrainConfig, DatasetSplit, ScalerBundle, TrainReport
 from .data import CsvPreprocessor
-from .split import SequenceSplitter
+from .dtos import (DatasetSplit, ScalerBundle, SplitConfig, TrainConfig,
+                   TrainReport)
 from .model import ModelBuilder
-from .trainer import Trainer
 from .predict import Predictor
-
+from .split import SequenceSplitter
+from .trainer import Trainer
 
 __all__ = [
-"SplitConfig",
-"TrainConfig",
-"DatasetSplit",
-"ScalerBundle",
-"TrainReport",
-"CsvPreprocessor",
-"SequenceSplitter",
-"ModelBuilder",
-"Trainer",
-"Predictor",
+    "SplitConfig",
+    "TrainConfig",
+    "DatasetSplit",
+    "ScalerBundle",
+    "TrainReport",
+    "CsvPreprocessor",
+    "SequenceSplitter",
+    "ModelBuilder",
+    "Trainer",
+    "Predictor",
 ]

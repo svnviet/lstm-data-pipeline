@@ -1,19 +1,26 @@
 from typing import Sequence
+
 import numpy as np
 import pandas as pd
 import ta
 
 
 class Predictor:
-    def __init__(self, model, feature_cols: Sequence[str], target_cols: Sequence[str],
-                 window_size: int, x_scaler, y_scaler):
+    def __init__(
+        self,
+        model,
+        feature_cols: Sequence[str],
+        target_cols: Sequence[str],
+        window_size: int,
+        x_scaler,
+        y_scaler,
+    ):
         self.model = model
-        self.feature_cols = list(feature_cols)   # FIX: use list
-        self.target_cols = list(target_cols)     # FIX: use list
+        self.feature_cols = list(feature_cols)  # FIX: use list
+        self.target_cols = list(target_cols)  # FIX: use list
         self.window_size = int(window_size)
         self.x_scaler = x_scaler
         self.y_scaler = y_scaler
-
 
     # --- Helper: add engineered features automatically ---
     def _add_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -64,7 +71,9 @@ class Predictor:
         if "EMA10" not in df.columns:
             df["EMA10"] = df["Close"].ewm(span=10, adjust=False).mean()
         if "VWAP" not in df.columns:
-            df["VWAP"] = (df["Close"] * df["TickVolume"]).cumsum() / df["TickVolume"].cumsum()
+            df["VWAP"] = (df["Close"] * df["TickVolume"]).cumsum() / df[
+                "TickVolume"
+            ].cumsum()
 
         if "RSI14" not in df.columns:
             df["RSI14"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
@@ -76,7 +85,9 @@ class Predictor:
             df["MACD_diff"] = macd.macd_diff()
 
         if "Bollinger_high" not in df.columns:
-            boll = ta.volatility.BollingerBands(close=df["Close"], window=20, window_dev=2)
+            boll = ta.volatility.BollingerBands(
+                close=df["Close"], window=20, window_dev=2
+            )
             df["Bollinger_high"] = boll.bollinger_hband()
             df["Bollinger_low"] = boll.bollinger_lband()
             df["Bollinger_mavg"] = boll.bollinger_mavg()
@@ -97,7 +108,7 @@ class Predictor:
         if N <= w:
             raise ValueError(f"Need N > window_size. Got N={N}, window_size={w}")
         M = N - w
-        return np.stack([scaled_X[i:i + w, :] for i in range(M)], axis=0)
+        return np.stack([scaled_X[i : i + w, :] for i in range(M)], axis=0)
 
     def predict_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         df = self._add_features(df)
@@ -113,14 +124,16 @@ class Predictor:
         y_pred_s = self.model.predict(X_win, verbose=0)
         y_pred_inv = self.y_scaler.inverse_transform(y_pred_s)
 
-        out_idx = df.index[self.window_size: self.window_size + y_pred_inv.shape[0]]
+        out_idx = df.index[self.window_size : self.window_size + y_pred_inv.shape[0]]
         return pd.DataFrame(y_pred_inv, index=out_idx, columns=self.target_cols)
 
     def predict_next_from_tail(self, df_tail: pd.DataFrame) -> np.ndarray:
         df_tail = self._add_features(df_tail)
 
         if len(df_tail) != self.window_size:
-            raise ValueError(f"df_tail must have exactly window_size={self.window_size} rows")
+            raise ValueError(
+                f"df_tail must have exactly window_size={self.window_size} rows"
+            )
 
         raw = df_tail[list(self.feature_cols)].to_numpy(dtype=float)
         scaled = self.x_scaler.transform(raw)
@@ -144,7 +157,9 @@ class Predictor:
             # last window_size rows
             seq = df_work.tail(self.window_size)
             X_in = seq[self.feature_cols].to_numpy(dtype=float)
-            X_in = self.x_scaler.transform(X_in).reshape(1, self.window_size, len(self.feature_cols))
+            X_in = self.x_scaler.transform(X_in).reshape(
+                1, self.window_size, len(self.feature_cols)
+            )
 
             # predict next OHLCV
             y_pred_s = self.model.predict(X_in, verbose=0)[0]

@@ -1,24 +1,30 @@
 from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import pathlib
 from typing import Dict, Optional, Sequence, Tuple
-import os, json, pathlib, datetime as dt
-import numpy as np
+
 import joblib
-
-from sklearn.metrics import mean_absolute_percentage_error
-
+import numpy as np
 # Keras 3 / TF 2.20
-from keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam
 from keras.saving import load_model
+from sklearn.metrics import mean_absolute_percentage_error
 
-from .split import SequenceSplitter
-from .dtos import TrainConfig, DatasetSplit, TrainReport, ScalerBundle, SplitConfig
+from . import ModelBuilder
 from .data import CsvPreprocessor
+from .dtos import (DatasetSplit, ScalerBundle, SplitConfig, TrainConfig,
+                   TrainReport)
+from .split import SequenceSplitter
 
 
 class Trainer:
-    def __init__(self, model):
+    def __init__(self, model=None):
         self.model = model
+        self.builder = ModelBuilder()
 
     # ----------------------------
     # Build default callbacks
@@ -52,8 +58,12 @@ class Trainer:
     # ----------------------------
     # Standard fresh training
     # ----------------------------
-    def fit(self, ds: DatasetSplit, cfg: TrainConfig, base_dir: str = "artifacts") -> Tuple[str, TrainReport]:
-        run_dir = os.path.join(base_dir, dt.datetime.now().strftime("run_%Y%m%dT%H%M%S"))
+    def fit(
+        self, ds: DatasetSplit, cfg: TrainConfig, base_dir: str = "artifacts"
+    ) -> Tuple[str, TrainReport]:
+        run_dir = os.path.join(
+            base_dir, dt.datetime.now().strftime("run_%Y%m%dT%H%M%S")
+        )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
         X_train = np.asarray(ds.X_train, dtype=np.float32)
@@ -61,19 +71,11 @@ class Trainer:
         X_val = np.asarray(ds.X_val, dtype=np.float32)
         y_val = np.asarray(ds.y_val, dtype=np.float32)
 
-        if not getattr(self.model, "optimizer", None):
-            self.model.compile(
-                optimizer=Adam(1e-3),
-                loss="mse",
-                metrics=["mae"],
-                run_eagerly=True,
-                jit_compile=False,
-            )
-
         callbacks = self._default_callbacks(run_dir)
 
         hist = self.model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             epochs=cfg.epochs,
             batch_size=cfg.batch_size,
             validation_data=(X_val, y_val),
@@ -116,7 +118,9 @@ class Trainer:
         callbacks: Optional[Sequence] = None,
         base_dir: str = "artifacts",
     ) -> Tuple[str, TrainReport]:
-        run_dir = os.path.join(base_dir, dt.datetime.now().strftime("resume_%Y%m%dT%H%M%S"))
+        run_dir = os.path.join(
+            base_dir, dt.datetime.now().strftime("resume_%Y%m%dT%H%M%S")
+        )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
         end_epoch = initial_epoch + int(epochs_more)
@@ -126,19 +130,13 @@ class Trainer:
         X_val = np.asarray(ds.X_val, dtype=np.float32)
         y_val = np.asarray(ds.y_val, dtype=np.float32)
 
-        if not getattr(self.model, "optimizer", None):
-            self.model.compile(
-                optimizer=Adam(1e-3),
-                loss="mse",
-                metrics=["mae"],
-                run_eagerly=True,
-                jit_compile=False,
-            )
-
-        planned_callbacks = list(callbacks) if callbacks else self._default_callbacks(run_dir)
+        planned_callbacks = (
+            list(callbacks) if callbacks else self._default_callbacks(run_dir)
+        )
 
         hist = self.model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             validation_data=(X_val, y_val),
             epochs=end_epoch,
             initial_epoch=initial_epoch,
@@ -158,8 +156,8 @@ class Trainer:
     # ----------------------------
     # One-shot resume from saved artifacts
     # ----------------------------
-    @staticmethod
     def resume_from_artifacts(
+        self,
         artifact_dir: str,
         csv_path: str,
         epochs_more: int = 50,
@@ -171,7 +169,9 @@ class Trainer:
         verbose: int = 1,
     ) -> tuple[str, TrainReport]:
 
-        model, x_scaler, y_scaler, meta, prev_epoch_hist, orig_fmt = Trainer._load_artifacts(artifact_dir)
+        self.model, x_scaler, y_scaler, meta, prev_epoch_hist, orig_fmt = (
+            self.builder._load_artifacts(artifact_dir)
+        )
         feature_cols = meta["feature_cols"]
         target_cols = meta["target_cols"]
         window_size = int(meta["window_size"])
@@ -179,7 +179,9 @@ class Trainer:
         cp = CsvPreprocessor()
         df = cp.preprocess(cp.load(csv_path))
 
-        splitter = SequenceSplitter(config=SplitConfig(window_size=window_size, ratios=ratios))
+        splitter = SequenceSplitter(
+            config=SplitConfig(window_size=window_size, ratios=ratios)
+        )
         ds = splitter.split(
             df=df,
             feature_cols=feature_cols,
@@ -190,7 +192,9 @@ class Trainer:
             y_scaler=y_scaler,
         )
 
-        start_epoch = int(initial_epoch) if initial_epoch is not None else int(prev_epoch_hist)
+        start_epoch = (
+            int(initial_epoch) if initial_epoch is not None else int(prev_epoch_hist)
+        )
         end_epoch = start_epoch + int(epochs_more)
 
         run_dir = save_to or os.path.join(
@@ -198,14 +202,8 @@ class Trainer:
         )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
-        planned_cbs = list(callbacks) if callbacks else Trainer._default_callbacks(run_dir)
-
-        model.compile(
-            optimizer=Adam(1e-3),
-            loss="mse",
-            metrics=["mae"],
-            run_eagerly=True,
-            jit_compile=False,
+        planned_cbs = (
+            list(callbacks) if callbacks else Trainer._default_callbacks(run_dir)
         )
 
         X_train = np.asarray(ds.X_train, dtype=np.float32)
@@ -213,8 +211,9 @@ class Trainer:
         X_val = np.asarray(ds.X_val, dtype=np.float32)
         y_val = np.asarray(ds.y_val, dtype=np.float32)
 
-        hist = model.fit(
-            X_train, y_train,
+        hist = self.model.fit(
+            X_train,
+            y_train,
             validation_data=(X_val, y_val),
             epochs=end_epoch,
             initial_epoch=start_epoch,
@@ -240,7 +239,9 @@ class Trainer:
     # ----------------------------
     # Helpers
     # ----------------------------
-    def _evaluate_and_report(self, ds: DatasetSplit, history: Dict[str, list]) -> TrainReport:
+    def _evaluate_and_report(
+        self, ds: DatasetSplit, history: Dict[str, list]
+    ) -> TrainReport:
         X_test = np.asarray(ds.X_test, dtype=np.float32)
         y_test = np.asarray(ds.y_test, dtype=np.float32)
 
@@ -256,7 +257,9 @@ class Trainer:
         y_test_inv = ds.scalers.y_scaler.inverse_transform(y_test)
         y_pred_inv = ds.scalers.y_scaler.inverse_transform(y_pred_s)
 
-        mape_raw = mean_absolute_percentage_error(y_test_inv, y_pred_inv, multioutput="raw_values")
+        mape_raw = mean_absolute_percentage_error(
+            y_test_inv, y_pred_inv, multioutput="raw_values"
+        )
         acc_raw = 1.0 - mape_raw
 
         mape_per_target = {t: float(m) for t, m in zip(ds.target_cols, mape_raw)}
@@ -269,41 +272,3 @@ class Trainer:
             accuracy_per_target=acc_per_target,
             history=history_dict,
         )
-
-    @staticmethod
-    def _load_artifacts(art_dir: str):
-        model = None
-        fmt = None
-        for ext in ("keras", "h5"):
-            p = os.path.join(art_dir, f"model.{ext}")
-            if os.path.exists(p):
-                model = load_model(p, compile=False)
-                fmt = ext
-                break
-        if model is None:
-            raise FileNotFoundError("No model.h5 or model.keras found in artifacts dir")
-
-        def _pick(*names):
-            for n in names:
-                q = os.path.join(art_dir, n)
-                if os.path.exists(q):
-                    return q
-            raise FileNotFoundError(f"Missing {' or '.join(names)} in {art_dir}")
-
-        x_scaler = joblib.load(_pick("x_scaler.joblib", "x_scaler.bin"))
-        y_scaler = joblib.load(_pick("y_scaler.joblib", "y_scaler.bin"))
-
-        with open(os.path.join(art_dir, "meta.json"), "r") as f:
-            meta = json.load(f)
-
-        prev_epoch = 0
-        hist_path = os.path.join(art_dir, "history.json")
-        if os.path.exists(hist_path):
-            try:
-                with open(hist_path, "r") as f:
-                    hist = json.load(f)
-                prev_epoch = int(len(hist.get("loss", [])))
-            except Exception:
-                pass
-
-        return model, x_scaler, y_scaler, meta, prev_epoch, fmt

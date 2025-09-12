@@ -1,62 +1,76 @@
 from __future__ import annotations
-import os, json
+
+import json
+import os
 from datetime import datetime
 
-import pandas as pd
 import joblib
-from sklearn.preprocessing import MinMaxScaler
-
+import pandas as pd
 from keras.optimizers import Adam
 from keras.saving import load_model  # FIX: Keras 3 path
+from sklearn.preprocessing import MinMaxScaler
 
 from .data import CsvPreprocessor
-from .split import SequenceSplitter
 from .dtos import SplitConfig, TrainConfig
 from .model import ModelBuilder
-from .trainer import Trainer
 from .predict import Predictor
+from .split import SequenceSplitter
+from .trainer import Trainer
 
 FEATURE_COLS = [
     # --- Base OHLCV ---
-    "Open", "High", "Low", "Close", "TickVolume",
-
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "TickVolume",
     # --- Returns ---
-    "Close_ret", "Open_ret", "High_ret", "Low_ret",
-
+    "Close_ret",
+    "Open_ret",
+    "High_ret",
+    "Low_ret",
     # --- Volatility ---
     "Range",
-
     # --- Time features ---
-    "minute_of_day", "slot5", "slot5_sin", "slot5_cos",
-    "minutes_from_open", "minutes_to_close", "percent_session_elapsed",
-    "is_open", "is_close",
-
+    "minute_of_day",
+    "slot5",
+    "slot5_sin",
+    "slot5_cos",
+    "minutes_from_open",
+    "minutes_to_close",
+    "percent_session_elapsed",
+    "is_open",
+    "is_close",
     # --- Day of week ---
-    "day_of_week", "dow_sin", "dow_cos", "is_monday", "is_friday",
-
+    "day_of_week",
+    "dow_sin",
+    "dow_cos",
+    "is_monday",
+    "is_friday",
     # --- Technical indicators ---
-    "SMA10", "SMA20", "EMA10", "VWAP",
-    "RSI14", "MACD", "MACD_signal", "MACD_diff",
-    "Bollinger_high", "Bollinger_low", "Bollinger_mavg",
-    "ATR14"
+    "SMA10",
+    "SMA20",
+    "EMA10",
+    "VWAP",
+    "RSI14",
+    "MACD",
+    "MACD_signal",
+    "MACD_diff",
+    "Bollinger_high",
+    "Bollinger_low",
+    "Bollinger_mavg",
+    "ATR14",
 ]
 
-TARGET_COLS = [
-    "Open", "High", "Low", "Close", "TickVolume"
-]
+TARGET_COLS = ["Open", "High", "Low", "Close", "TickVolume"]
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__),
-    f"artifacts_{datetime.now().strftime('%Y%m%d')}"
+    os.path.dirname(__file__), f"artifacts_{datetime.now().strftime('%Y%m%d')}"
 )
 
 
 def _fit_scalers_on_train_only(
-        df: pd.DataFrame,
-        feature_cols,
-        target_cols,
-        window_size: int,
-        ratios
+    df: pd.DataFrame, feature_cols, target_cols, window_size: int, ratios
 ):
     """
     Fit MinMax scalers using ONLY the training span:
@@ -75,7 +89,7 @@ def _fit_scalers_on_train_only(
     # Fit X on all feature rows that feed the train windows
     X_train_span = df[feature_cols].iloc[: w + n_train]
     # Fit y on target rows for train
-    y_train_span = df[target_cols].iloc[w: w + n_train]
+    y_train_span = df[target_cols].iloc[w : w + n_train]
 
     x_scaler = MinMaxScaler().fit(X_train_span.to_numpy(dtype=float))
     y_scaler = MinMaxScaler().fit(y_train_span.to_numpy(dtype=float))
@@ -110,20 +124,12 @@ def run_training(csv_path: str) -> None:
     )
 
     # 3) Model (FIX: correct parameter names)
-    model = ModelBuilder.lstm_stacked(
+    model = model_builder.lstm_stacked(
         window_size=ds.window_size,
         n_features=len(ds.feature_cols),
         n_targets=len(ds.target_cols),
     )
 
-    # Compile for TF 2.20 / Keras 3; eager helps avoid numpy() crash on resume
-    model.compile(
-        optimizer=Adam(1e-4),
-        loss="mse",
-        metrics=["mae"],
-        run_eagerly=True,
-        jit_compile=False,
-    )
     model.summary()
 
     # 4) Train & report
@@ -143,7 +149,7 @@ def run_training(csv_path: str) -> None:
     pred_df = predictor.predict_dataframe(df)
     print("Pred head:\n", pred_df.head())
 
-    tail = df.iloc[-ds.window_size:]
+    tail = df.iloc[-ds.window_size :]
     next_pred = predictor.predict_next_from_tail(tail)
     print("Next-step prediction (real units, order TARGET_COLS):", next_pred)
 
@@ -214,9 +220,10 @@ def load_model_predict():
 
 
 def retrain_model() -> None:
-    outdir, report = Trainer.resume_from_artifacts(
-        artifact_dir="artifacts_20250903",
-        csv_path="xauusd_M1_exness_2025-08-01.csv",
+    trainer = Trainer()
+    outdir, report = trainer.resume_from_artifacts(
+        artifact_dir="artifacts_20250907",
+        csv_path="xauusd_M1_exness_2025.csv",
         epochs_more=1,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
@@ -227,6 +234,7 @@ def retrain_model() -> None:
 
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
-    run_training(csv_path)
+    model_builder = ModelBuilder()
+    # run_training(csv_path)
     # load_model_predict()
-    # retrain_model()
+    retrain_model()
