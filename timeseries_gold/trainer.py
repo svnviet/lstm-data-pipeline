@@ -73,6 +73,8 @@ class Trainer:
 
         callbacks = self._default_callbacks(run_dir)
 
+        self.builder.ensure_compiled(self.model)
+
         hist = self.model.fit(
             X_train,
             y_train,
@@ -223,10 +225,10 @@ class Trainer:
             shuffle=False,
         )
 
-        trainer = Trainer(model)
+        trainer = Trainer(self.model)
         report = trainer._evaluate_and_report(ds, hist.history)
 
-        model.save(os.path.join(run_dir, f"model.{orig_fmt}"))
+        self.model.save(os.path.join(run_dir, f"model.{orig_fmt}"))
         joblib.dump(x_scaler, os.path.join(run_dir, "x_scaler.joblib"))
         joblib.dump(y_scaler, os.path.join(run_dir, "y_scaler.joblib"))
         with open(os.path.join(run_dir, "meta.json"), "w") as f:

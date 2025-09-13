@@ -222,9 +222,9 @@ def load_model_predict():
 def retrain_model() -> None:
     trainer = Trainer()
     outdir, report = trainer.resume_from_artifacts(
-        artifact_dir="artifacts_20250907",
+        artifact_dir="timeseries_gold/artifacts_20250907",
         csv_path="xauusd_M1_exness_2025.csv",
-        epochs_more=1,
+        epochs_more=100,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
     )
@@ -235,6 +235,6 @@ def retrain_model() -> None:
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
     model_builder = ModelBuilder()
-    # run_training(csv_path)
+    run_training(csv_path)
     # load_model_predict()
-    retrain_model()
+    # retrain_model()
