@@ -183,7 +183,7 @@ def load_model_predict():
     """
     FUTURE_STEPS = 30
     ART_NAME = "artifacts_20250907"
-    ART_DIR = "/Users/vietnguyen/Projects/prediction/timeseries_gold/artifacts_20250907"  # adjust as needed
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/artifacts_20250907"  # adjust as needed
 
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
@@ -235,6 +235,6 @@ def retrain_model() -> None:
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
     model_builder = ModelBuilder()
-    run_training(csv_path)
-    # load_model_predict()
+    # run_training(csv_path)
+    load_model_predict()
     # retrain_model()
