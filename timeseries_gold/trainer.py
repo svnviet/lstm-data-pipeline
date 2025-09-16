@@ -47,7 +47,7 @@ class Trainer:
                 verbose=1,
             ),
             ModelCheckpoint(
-                filepath=os.path.join(outdir, "best_model.keras"),
+                filepath=os.path.join(outdir, "model.keras"),
                 monitor=monitor,
                 save_best_only=True,
                 save_weights_only=False,

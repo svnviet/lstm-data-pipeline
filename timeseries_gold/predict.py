@@ -262,6 +262,6 @@ class Predictor:
 
             # Save prediction (OHLCV only)
             preds.append(next_row)
-
+        df_save.to_csv("alo.csv", index=False)
         # Return predictions as DataFrame (Time + OHLCV)
         return pd.DataFrame(preds, columns=["Time"] + self.target_cols)

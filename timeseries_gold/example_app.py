@@ -6,10 +6,10 @@ from datetime import datetime
 
 import joblib
 import pandas as pd
-from keras.optimizers import Adam
 from keras.saving import load_model  # FIX: Keras 3 path
 from sklearn.preprocessing import MinMaxScaler
 
+from timeseries_gold.visualiza import Visualizer
 from .data import CsvPreprocessor
 from .dtos import SplitConfig, TrainConfig
 from .model import ModelBuilder
@@ -70,7 +70,7 @@ MODEL_PATH = os.path.join(
 
 
 def _fit_scalers_on_train_only(
-    df: pd.DataFrame, feature_cols, target_cols, window_size: int, ratios
+        df: pd.DataFrame, feature_cols, target_cols, window_size: int, ratios
 ):
     """
     Fit MinMax scalers using ONLY the training span:
@@ -89,7 +89,7 @@ def _fit_scalers_on_train_only(
     # Fit X on all feature rows that feed the train windows
     X_train_span = df[feature_cols].iloc[: w + n_train]
     # Fit y on target rows for train
-    y_train_span = df[target_cols].iloc[w : w + n_train]
+    y_train_span = df[target_cols].iloc[w: w + n_train]
 
     x_scaler = MinMaxScaler().fit(X_train_span.to_numpy(dtype=float))
     y_scaler = MinMaxScaler().fit(y_train_span.to_numpy(dtype=float))
@@ -149,7 +149,7 @@ def run_training(csv_path: str) -> None:
     pred_df = predictor.predict_dataframe(df)
     print("Pred head:\n", pred_df.head())
 
-    tail = df.iloc[-ds.window_size :]
+    tail = df.iloc[-ds.window_size:]
     next_pred = predictor.predict_next_from_tail(tail)
     print("Next-step prediction (real units, order TARGET_COLS):", next_pred)
 
@@ -232,9 +232,16 @@ def retrain_model() -> None:
     print(report.mape_per_target)
 
 
+def show_visualization() -> None:
+    vis = Visualizer("new_gold_data.csv", "real_data.csv", "future_predictions_artifacts_20250907.csv", n_history=200)
+    vis.plot_predictions_all()
+
+
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
     model_builder = ModelBuilder()
     # run_training(csv_path)
-    load_model_predict()
+    # load_model_predict()
     # retrain_model()
+
+    show_visualization()
