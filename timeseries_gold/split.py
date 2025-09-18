@@ -5,7 +5,6 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 
 from .dtos import DatasetSplit, ScalerBundle, SplitConfig
 

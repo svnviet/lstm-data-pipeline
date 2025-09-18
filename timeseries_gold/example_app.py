@@ -7,7 +7,7 @@ from datetime import datetime
 import joblib
 import pandas as pd
 from keras.saving import load_model  # FIX: Keras 3 path
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 
 from timeseries_gold.visualiza import Visualizer
 from .data import CsvPreprocessor
@@ -73,7 +73,7 @@ def _fit_scalers_on_train_only(
         df: pd.DataFrame, feature_cols, target_cols, window_size: int, ratios
 ):
     """
-    Fit MinMax scalers using ONLY the training span:
+    Fit StandardScalers using ONLY the training span:
     - X scaler on rows [0 : w + n_train)
     - y scaler on rows [w : w + n_train)   (targets exist only for indices >= w)
     """
@@ -86,15 +86,14 @@ def _fit_scalers_on_train_only(
 
     n_train = int(M * r_train)
 
-    # Fit X on all feature rows that feed the train windows
+    # Training span
     X_train_span = df[feature_cols].iloc[: w + n_train]
-    # Fit y on target rows for train
     y_train_span = df[target_cols].iloc[w: w + n_train]
 
-    x_scaler = MinMaxScaler().fit(X_train_span.to_numpy(dtype=float))
-    y_scaler = MinMaxScaler().fit(y_train_span.to_numpy(dtype=float))
+    # StandardScaler instead of MinMaxScaler
+    x_scaler = StandardScaler().fit(X_train_span.to_numpy(dtype=float))
+    y_scaler = StandardScaler().fit(y_train_span.to_numpy(dtype=float))
     return x_scaler, y_scaler
-
 
 def run_training(csv_path: str) -> None:
     os.makedirs(MODEL_PATH, exist_ok=True)
@@ -183,7 +182,7 @@ def load_model_predict():
     """
     FUTURE_STEPS = 30
     ART_NAME = "artifacts_20250907"
-    ART_DIR = "/Users/vietnguyen/Projects/prediction/artifacts_20250907"  # adjust as needed
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/resume_20250915T213014"  # adjust as needed
 
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
@@ -240,6 +239,7 @@ def show_visualization() -> None:
 if __name__ == "__main__":
     csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
     model_builder = ModelBuilder()
+
     # run_training(csv_path)
     # load_model_predict()
     # retrain_model()
