@@ -1,3 +1,5 @@
+# trainer.py
+
 from __future__ import annotations
 
 import datetime as dt
@@ -8,16 +10,12 @@ from typing import Dict, Optional, Sequence, Tuple
 
 import joblib
 import numpy as np
-# Keras 3 / TF 2.20
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from keras.optimizers import Adam
-from keras.saving import load_model
 from sklearn.metrics import mean_absolute_percentage_error
 
 from . import ModelBuilder
 from .data import CsvPreprocessor
-from .dtos import (DatasetSplit, ScalerBundle, SplitConfig, TrainConfig,
-                   TrainReport)
+from .dtos import DatasetSplit, ScalerBundle, SplitConfig, TrainConfig, TrainReport
 from .split import SequenceSplitter
 
 
@@ -56,6 +54,46 @@ class Trainer:
         ]
 
     # ----------------------------
+    # Shared training logic
+    # ----------------------------
+    def _run_fit(
+        self,
+        run_dir: str,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        epochs: int,
+        initial_epoch: int,
+        batch_size: int,
+        verbose: int,
+        callbacks: Optional[Sequence],
+    ):
+        # Make sure model is compiled
+        self.builder.ensure_compiled(self.model)
+
+        cbs = list(callbacks) if callbacks else self._default_callbacks(run_dir)
+
+        hist = self.model.fit(
+            X_train,
+            y_train,
+            validation_data=(X_val, y_val),
+            epochs=epochs,
+            initial_epoch=initial_epoch,
+            batch_size=batch_size,
+            verbose=verbose,
+            callbacks=cbs,
+            shuffle=False,
+        )
+
+        # Save last-epoch model & training history
+        self.model.save(os.path.join(run_dir, "model.keras"))
+        with open(os.path.join(run_dir, "history.json"), "w") as f:
+            json.dump({k: [float(x) for x in v] for k, v in hist.history.items()}, f)
+
+        return hist
+
+    # ----------------------------
     # Standard fresh training
     # ----------------------------
     def fit(
@@ -66,28 +104,23 @@ class Trainer:
         )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
-        X_train = np.asarray(ds.X_train, dtype=np.float32)
-        y_train = np.asarray(ds.y_train, dtype=np.float32)
-        X_val = np.asarray(ds.X_val, dtype=np.float32)
-        y_val = np.asarray(ds.y_val, dtype=np.float32)
+        X_train, y_train = np.asarray(ds.X_train, np.float32), np.asarray(ds.y_train, np.float32)
+        X_val, y_val = np.asarray(ds.X_val, np.float32), np.asarray(ds.y_val, np.float32)
 
-        callbacks = self._default_callbacks(run_dir)
-
-        self.builder.ensure_compiled(self.model)
-
-        hist = self.model.fit(
+        hist = self._run_fit(
+            run_dir,
             X_train,
             y_train,
+            X_val,
+            y_val,
             epochs=cfg.epochs,
+            initial_epoch=0,
             batch_size=cfg.batch_size,
-            validation_data=(X_val, y_val),
             verbose=cfg.verbose,
-            shuffle=False,
-            callbacks=callbacks,
+            callbacks=None,
         )
 
-        # Save last-epoch model and artifacts
-        self.model.save(os.path.join(run_dir, "model.keras"))
+        # Save scalers + meta
         joblib.dump(ds.scalers.x_scaler, os.path.join(run_dir, "x_scaler.joblib"))
         joblib.dump(ds.scalers.y_scaler, os.path.join(run_dir, "y_scaler.joblib"))
         with open(os.path.join(run_dir, "meta.json"), "w") as f:
@@ -101,8 +134,6 @@ class Trainer:
                 ensure_ascii=False,
                 indent=2,
             )
-        with open(os.path.join(run_dir, "history.json"), "w") as f:
-            json.dump({k: [float(x) for x in v] for k, v in hist.history.items()}, f)
 
         report = self._evaluate_and_report(ds, hist.history)
         return run_dir, report
@@ -125,32 +156,21 @@ class Trainer:
         )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
-        end_epoch = initial_epoch + int(epochs_more)
+        X_train, y_train = np.asarray(ds.X_train, np.float32), np.asarray(ds.y_train, np.float32)
+        X_val, y_val = np.asarray(ds.X_val, np.float32), np.asarray(ds.y_val, np.float32)
 
-        X_train = np.asarray(ds.X_train, dtype=np.float32)
-        y_train = np.asarray(ds.y_train, dtype=np.float32)
-        X_val = np.asarray(ds.X_val, dtype=np.float32)
-        y_val = np.asarray(ds.y_val, dtype=np.float32)
-
-        planned_callbacks = (
-            list(callbacks) if callbacks else self._default_callbacks(run_dir)
-        )
-
-        hist = self.model.fit(
+        hist = self._run_fit(
+            run_dir,
             X_train,
             y_train,
-            validation_data=(X_val, y_val),
-            epochs=end_epoch,
+            X_val,
+            y_val,
+            epochs=initial_epoch + epochs_more,
             initial_epoch=initial_epoch,
             batch_size=batch_size or 32,
             verbose=1 if verbose is None else verbose,
-            callbacks=planned_callbacks,
-            shuffle=False,
+            callbacks=callbacks,
         )
-
-        self.model.save(os.path.join(run_dir, "model.keras"))
-        with open(os.path.join(run_dir, "history.json"), "w") as f:
-            json.dump({k: [float(x) for x in v] for k, v in hist.history.items()}, f)
 
         report = self._evaluate_and_report(ds, hist.history)
         return run_dir, report
@@ -169,7 +189,7 @@ class Trainer:
         callbacks: Optional[Sequence] = None,
         save_to: Optional[str] = None,
         verbose: int = 1,
-    ) -> tuple[str, TrainReport]:
+    ) -> Tuple[str, TrainReport]:
 
         self.model, x_scaler, y_scaler, meta, prev_epoch_hist, orig_fmt = (
             self.builder._load_artifacts(artifact_dir)
@@ -181,9 +201,7 @@ class Trainer:
         cp = CsvPreprocessor()
         df = cp.preprocess(cp.load(csv_path))
 
-        splitter = SequenceSplitter(
-            config=SplitConfig(window_size=window_size, ratios=ratios)
-        )
+        splitter = SequenceSplitter(config=SplitConfig(window_size=window_size, ratios=ratios))
         ds = splitter.split(
             df=df,
             feature_cols=feature_cols,
@@ -194,9 +212,7 @@ class Trainer:
             y_scaler=y_scaler,
         )
 
-        start_epoch = (
-            int(initial_epoch) if initial_epoch is not None else int(prev_epoch_hist)
-        )
+        start_epoch = int(initial_epoch) if initial_epoch is not None else int(prev_epoch_hist)
         end_epoch = start_epoch + int(epochs_more)
 
         run_dir = save_to or os.path.join(
@@ -204,64 +220,47 @@ class Trainer:
         )
         pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
-        planned_cbs = (
-            list(callbacks) if callbacks else Trainer._default_callbacks(run_dir)
-        )
+        X_train, y_train = np.asarray(ds.X_train, np.float32), np.asarray(ds.y_train, np.float32)
+        X_val, y_val = np.asarray(ds.X_val, np.float32), np.asarray(ds.y_val, np.float32)
 
-        X_train = np.asarray(ds.X_train, dtype=np.float32)
-        y_train = np.asarray(ds.y_train, dtype=np.float32)
-        X_val = np.asarray(ds.X_val, dtype=np.float32)
-        y_val = np.asarray(ds.y_val, dtype=np.float32)
-
-        hist = self.model.fit(
+        hist = self._run_fit(
+            run_dir,
             X_train,
             y_train,
-            validation_data=(X_val, y_val),
+            X_val,
+            y_val,
             epochs=end_epoch,
             initial_epoch=start_epoch,
             batch_size=batch_size,
             verbose=verbose,
-            callbacks=planned_cbs,
-            shuffle=False,
+            callbacks=callbacks,
         )
 
-        trainer = Trainer(self.model)
-        report = trainer._evaluate_and_report(ds, hist.history)
-
+        # Save scalers + meta alongside model
         self.model.save(os.path.join(run_dir, f"model.{orig_fmt}"))
         joblib.dump(x_scaler, os.path.join(run_dir, "x_scaler.joblib"))
         joblib.dump(y_scaler, os.path.join(run_dir, "y_scaler.joblib"))
         with open(os.path.join(run_dir, "meta.json"), "w") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
-        with open(os.path.join(run_dir, "history.json"), "w") as f:
-            json.dump({k: [float(x) for x in v] for k, v in hist.history.items()}, f)
 
+        report = self._evaluate_and_report(ds, hist.history)
         return run_dir, report
 
     # ----------------------------
     # Helpers
     # ----------------------------
-    def _evaluate_and_report(
-        self, ds: DatasetSplit, history: Dict[str, list]
-    ) -> TrainReport:
-        X_test = np.asarray(ds.X_test, dtype=np.float32)
-        y_test = np.asarray(ds.y_test, dtype=np.float32)
+    def _evaluate_and_report(self, ds: DatasetSplit, history: Dict[str, list]) -> TrainReport:
+        X_test = np.asarray(ds.X_test, np.float32)
+        y_test = np.asarray(ds.y_test, np.float32)
 
         eval_res = self.model.evaluate(X_test, y_test, verbose=0, return_dict=True)
-        if isinstance(eval_res, dict):
-            test_loss = float(eval_res.get("loss", list(eval_res.values())[0]))
-        elif isinstance(eval_res, (list, tuple)):
-            test_loss = float(eval_res[0])
-        else:
-            test_loss = float(eval_res)
+        test_loss = float(eval_res["loss"]) if isinstance(eval_res, dict) else float(eval_res[0])
 
         y_pred_s = self.model.predict(X_test, verbose=0)
         y_test_inv = ds.scalers.y_scaler.inverse_transform(y_test)
         y_pred_inv = ds.scalers.y_scaler.inverse_transform(y_pred_s)
 
-        mape_raw = mean_absolute_percentage_error(
-            y_test_inv, y_pred_inv, multioutput="raw_values"
-        )
+        mape_raw = mean_absolute_percentage_error(y_test_inv, y_pred_inv, multioutput="raw_values")
         acc_raw = 1.0 - mape_raw
 
         mape_per_target = {t: float(m) for t, m in zip(ds.target_cols, mape_raw)}

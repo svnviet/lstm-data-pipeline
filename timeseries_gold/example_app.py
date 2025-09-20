@@ -222,7 +222,7 @@ def load_model_predict():
 def retrain_model() -> None:
     trainer = Trainer()
     outdir, report = trainer.resume_from_artifacts(
-        artifact_dir="artifacts_20250918",
+        artifact_dir="timeseries_gold/artifacts_20250918",
         csv_path="xauusd_M1_exness_2025.csv",
         epochs_more=50,
         # initial_epoch=300,  # or None to auto-detect from history.json
