@@ -95,6 +95,7 @@ def _fit_scalers_on_train_only(
     y_scaler = StandardScaler().fit(y_train_span.to_numpy(dtype=float))
     return x_scaler, y_scaler
 
+
 def run_training(csv_path: str) -> None:
     os.makedirs(MODEL_PATH, exist_ok=True)
 
@@ -133,7 +134,7 @@ def run_training(csv_path: str) -> None:
 
     # 4) Train & report
     trainer = Trainer(model)
-    cfg = TrainConfig(epochs=300, batch_size=32, verbose=1)
+    cfg = TrainConfig(epochs=100, batch_size=32, verbose=1)
     report = trainer.fit(ds, cfg)
 
     # 5) Quick inference sanity checks
@@ -181,8 +182,8 @@ def load_model_predict():
     Load artifacts and run future prediction on a new CSV.
     """
     FUTURE_STEPS = 30
-    ART_NAME = "artifacts_20250907"
-    ART_DIR = "/Users/vietnguyen/Projects/prediction/resume_20250915T213014"  # adjust as needed
+    ART_NAME = "artifacts_20250918"
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/artifacts_20250918"  # adjust as needed
 
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
@@ -221,9 +222,9 @@ def load_model_predict():
 def retrain_model() -> None:
     trainer = Trainer()
     outdir, report = trainer.resume_from_artifacts(
-        artifact_dir="timeseries_gold/artifacts_20250907",
+        artifact_dir="artifacts_20250918",
         csv_path="xauusd_M1_exness_2025.csv",
-        epochs_more=100,
+        epochs_more=50,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
     )
@@ -242,6 +243,6 @@ if __name__ == "__main__":
 
     # run_training(csv_path)
     # load_model_predict()
-    # retrain_model()
+    retrain_model()
 
-    show_visualization()
+    # show_visualization()

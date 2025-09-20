@@ -25,20 +25,11 @@ class ModelBuilder:
         compile_: bool = False,
         # compile args (used only if compile_=True)
         lr: float = 1e-3,
-        loss: str = "mse",
-        metrics: Sequence[str] = ("mae", "mse"),
+        loss: str = "mae",
+        metrics: Sequence[str] = ("mae", ),
         run_eagerly: bool = True,  # helps avoid numpy() crash on resume
         jit_compile: bool = False,
     ) -> Model:
-        """
-        Build an LSTM regressor:
-          - 3 stacked LSTMs (return_sequences on first two)
-          - Optional Dense head
-          - Linear output with n_targets units
-
-        Set compile_=True if you want this function to compile the model.
-        Otherwise, call ModelBuilder.ensure_compiled(...) later.
-        """
         inp = layers.Input(
             shape=(window_size, n_features), dtype="float32", name="inputs"
         )
@@ -76,15 +67,11 @@ class ModelBuilder:
         model: Model,
         *,
         lr: float = 1e-3,
-        loss: str = "mse",
+        loss: str = "mae",
         metrics: Sequence[str] = ("mae",),
         run_eagerly: bool = True,
         jit_compile: bool = False,
     ) -> Model:
-        """
-        Compile only if not already compiled.
-        Use this for retraining after load_model(..., compile=False).
-        """
         if not getattr(model, "optimizer", None):
             model.compile(
                 optimizer=Adam(lr),
@@ -102,18 +89,15 @@ class ModelBuilder:
         - Low  <= min(Open, Close, High)
 
         Args:
-            lambda_penalty: weight of the constraint penalty relative to MSE.
-
-        Returns:
-            A loss function to be used in model.compile(loss=...).
+            lambda_penalty: weight of the constraint penalty relative to MAE.
         """
 
         def loss_fn(y_true, y_pred):
             # split into columns
             o_p, h_p, l_p, c_p, v_p = tf.split(y_pred, 5, axis=-1)
 
-            # base regression loss (MSE across all outputs)
-            mse = tf.reduce_mean(tf.square(y_true - y_pred))
+            # base regression loss (MAE across all outputs)
+            mae = tf.reduce_mean(tf.abs(y_true - y_pred))
 
             # constraint 1: High must be >= Open, Close, Low
             high_violation = (
@@ -128,7 +112,7 @@ class ModelBuilder:
             # average penalty
             penalty = tf.reduce_mean(high_violation + low_violation)
 
-            return mse + lambda_penalty * penalty
+            return mae + lambda_penalty * penalty
 
         return loss_fn
 
@@ -142,16 +126,11 @@ class ModelBuilder:
         run_eagerly: bool = True,
         jit_compile: bool = False,
     ) -> Model:
-        """
-        Load a model from a .keras file.
-        If compile_=True, recompile with constrained_ohlc_loss.
-        Otherwise, load with compile=False and use ensure_compiled later.
-        """
         if compile_:
             model = load_model(
                 path,
                 custom_objects={"loss_fn": self._constrained_ohlc_loss(5.0)},
-                compile=False,  # recompile manually to avoid errors
+                compile=False,
             )
             model.compile(
                 optimizer=Adam(lr),
