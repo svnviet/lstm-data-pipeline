@@ -182,9 +182,6 @@ def load_model_predict():
     Load artifacts and run future prediction on a new CSV.
     """
     FUTURE_STEPS = 30
-    ART_NAME = "artifacts_20250918"
-    ART_DIR = "/Users/vietnguyen/Projects/prediction/artifacts_20250918"  # adjust as needed
-
     # 1) Load model & scalers (FIX: .keras + Keras 3 loader)
     model = load_model(os.path.join(ART_DIR, "model.keras"), compile=False)
     x_scaler = joblib.load(os.path.join(ART_DIR, "x_scaler.joblib"))
@@ -209,21 +206,21 @@ def load_model_predict():
 
     # 4) Load & preprocess new data (FIX: keep preprocessing consistent)
     cp = CsvPreprocessor()
-    df_new = cp.preprocess(cp.load("new_gold_data.csv"))
+    df_new = cp.preprocess(cp.load(PREDICT_CSV))
 
     # 5) Predict future
     future_df = predictor.predict_future(df_new, steps=FUTURE_STEPS)
 
     # 6) Save
-    future_df.to_csv(f"future_predictions_{ART_NAME}.csv", index=False)
-    print("Predictions saved to future_predictions.csv")
+    future_df.to_csv(SAVE_PREDICT_CSV, index=False)
+    print(f"Predictions saved to {SAVE_PREDICT_CSV}")
 
 
 def retrain_model() -> None:
     trainer = Trainer()
     outdir, report = trainer.resume_from_artifacts(
-        artifact_dir="timeseries_gold/artifacts_20250918",
-        csv_path="xauusd_M1_exness_2025.csv",
+        artifact_dir=ART_DIR,
+        csv_path=csv_path,
         epochs_more=50,
         # initial_epoch=300,  # or None to auto-detect from history.json
         batch_size=32,
@@ -233,16 +230,22 @@ def retrain_model() -> None:
 
 
 def show_visualization() -> None:
-    vis = Visualizer("new_gold_data.csv", "real_data.csv", "future_predictions_artifacts_20250907.csv", n_history=200)
+    vis = Visualizer(PREDICT_CSV, REAL_CSV, SAVE_PREDICT_CSV, n_history=200)
     vis.plot_predictions_all()
 
 
 if __name__ == "__main__":
-    csv_path = os.environ.get("GOLD_CSV", "xauusd_M1_exness_2025.csv")
+    csv_path = os.environ.get("GOLD_CSV", "XAUUSD_M1.csv")
     model_builder = ModelBuilder()
-
     # run_training(csv_path)
+
+    ART_NAME = "artifacts_20250920"
+    ART_DIR = "/Users/vietnguyen/Projects/prediction/artifacts_20250920"  # adjust as needed
+    PREDICT_CSV = "new_gold_data.csv"
+    SAVE_PREDICT_CSV = f"future_predictions_{ART_NAME}.csv"
+    REAL_CSV = "real_data.csv"
     # load_model_predict()
+
     retrain_model()
 
     # show_visualization()
